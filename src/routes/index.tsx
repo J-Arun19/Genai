@@ -1,9 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import {
-  SKILLS, NODES, MAX_MISTAKES, MAX_SCORE, applyChoice, initChallenge, score,
-  type SkillId, type ChallengeState, type Piece,
-} from "@/game/logic";
+import { SKILLS, QUESTIONS, answer, initGame, isWin, next, type SkillId, type GameState, type Piece, type AnswerResult } from "@/game/logic";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -19,29 +16,26 @@ export const Route = createFileRoute("/")({
   component: App,
 });
 
-type Phase = "start" | "choose" | "train" | "challenge" | "result";
+type Phase = "start" | "choose" | "bonus" | "play" | "result";
 type Tab = "game" | "eval" | "evidence";
-interface Feedback { correct: boolean; text: string; note?: string | undefined }
 interface TestLog { started: boolean; skillGateSeen: boolean; feedbackShown: boolean; ended: null | "win" | "loss"; restartOk: null | boolean }
 
 const card = "rounded-xl border border-border bg-card p-5 shadow-elegant sm:p-6";
-const btn = "rounded-lg px-4 py-2.5 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40";
+const btn = "rounded-lg px-5 py-3 text-base font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-40";
 const btnPrimary = `${btn} bg-primary text-primary-foreground hover:brightness-110 hover:shadow-glow`;
 const btnGhost = `${btn} border border-border bg-secondary text-secondary-foreground hover:border-primary`;
 
 function Board({ pieces, highlight }: { pieces: Piece[]; highlight: string[] }) {
   const files = "abcdefgh";
   return (
-    <div className="mx-auto grid w-full max-w-[320px] grid-cols-8 overflow-hidden rounded-lg border-4 border-accent shadow-elegant">
+    <div className="mx-auto grid w-full max-w-[300px] grid-cols-8 overflow-hidden rounded-lg border-4 border-accent shadow-elegant">
       {Array.from({ length: 64 }, (_, i) => {
-        const rank = 8 - Math.floor(i / 8); const file = files[i % 8]; const sq = `${file}${rank}`;
+        const rank = 8 - Math.floor(i / 8); const sq = `${files[i % 8]}${rank}`;
         const light = (i % 8 + Math.floor(i / 8)) % 2 === 0;
         const pc = pieces.find((p) => p.sq === sq);
         return (
-          <div key={sq} className={`relative flex aspect-square items-center justify-center ${light ? "bg-sq-light" : "bg-sq-dark"} ${highlight.includes(sq) ? "ring-2 ring-inset ring-primary" : ""}`}>
+          <div key={sq} className={`flex aspect-square items-center justify-center ${light ? "bg-sq-light" : "bg-sq-dark"} ${highlight.includes(sq) ? "ring-2 ring-inset ring-primary" : ""}`}>
             {pc && <span className={`text-2xl leading-none sm:text-3xl ${pc.white ? "text-piece-white [text-shadow:0_0_2px_black,0_1px_2px_black]" : "text-piece-black"}`}>{pc.p}</span>}
-            {rank === 1 && <span className="absolute bottom-0 right-0.5 text-[9px] text-piece-black/60">{file}</span>}
-            {file === "a" && <span className="absolute left-0.5 top-0 text-[9px] text-piece-black/60">{rank}</span>}
           </div>
         );
       })}
@@ -49,214 +43,159 @@ function Board({ pieces, highlight }: { pieces: Piece[]; highlight: string[] }) 
   );
 }
 
-function FeedbackBox({ f }: { f: Feedback }) {
-  return (
-    <div role="status" className={`animate-rise mt-4 rounded-lg border p-4 text-sm ${f.correct ? "border-primary bg-primary/10" : "border-destructive bg-destructive/10"}`}>
-      <p className={`font-bold ${f.correct ? "text-primary" : "text-destructive"}`}>{f.correct ? "✓ Correct" : "✗ Incorrect"}</p>
-      <p className="mt-1 text-foreground/90">{f.text}</p>
-      {f.note && <p className="mt-2 font-medium text-accent">{f.note}</p>}
-    </div>
-  );
-}
-
-function Progress({ phase }: { phase: Phase }) {
-  const steps: [Phase, string][] = [["start", "Start"], ["choose", "Choose Skill"], ["train", "Training"], ["challenge", "Final Challenge"], ["result", "Result"]];
-  const idx = steps.findIndex(([p]) => p === phase);
-  return (
-    <ol className="flex flex-wrap gap-2 text-xs" aria-label="Progress">
-      {steps.map(([p, l], i) => (
-        <li key={p} className={`rounded-full border px-3 py-1 ${i < idx ? "border-primary/50 text-primary" : i === idx ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground"}`}>{i + 1}. {l}</li>
-      ))}
-    </ol>
-  );
+function Guide({ children }: { children: React.ReactNode }) {
+  return <p className="rounded-lg border border-primary/60 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary">👉 {children}</p>;
 }
 
 function App() {
   const [tab, setTab] = useState<Tab>("game");
   const [phase, setPhase] = useState<Phase>("start");
-  const [selected, setSelected] = useState<SkillId | null>(null);
-  const [trainAnswer, setTrainAnswer] = useState<string | null>(null);
-  const [skillEarned, setSkillEarned] = useState(false);
-  const [ch, setCh] = useState<ChallengeState>(initChallenge(null, false));
-  const [fb, setFb] = useState<Feedback | null>(null);
-  const [pendingNext, setPendingNext] = useState<ChallengeState | null>(null);
-  const [hintAvail, setHintAvail] = useState(false);
-  const [hintShown, setHintShown] = useState<string | null>(null);
+  const [skillId, setSkillId] = useState<SkillId | null>(null);
+  const [g, setG] = useState<GameState>(initGame());
+  const [picked, setPicked] = useState<string | null>(null);
+  const [result, setResult] = useState<AnswerResult | null>(null);
+  const [hintOn, setHintOn] = useState(false);
   const [showTests, setShowTests] = useState(false);
   const [restartCheck, setRestartCheck] = useState(false);
   const [log, setLog] = useState<TestLog>({ started: false, skillGateSeen: false, feedbackShown: false, ended: null, restartOk: null });
+  const skill = SKILLS.find((s) => s.id === skillId) ?? null;
+  const q = QUESTIONS[g.q]!;
 
-  const skill = SKILLS.find((s) => s.id === selected) ?? null;
-
-  useEffect(() => { if (phase === "choose" && selected === null) setLog((l) => ({ ...l, skillGateSeen: true })); }, [phase, selected]);
-  useEffect(() => { if (fb) setLog((l) => ({ ...l, feedbackShown: true })); }, [fb]);
-  // Verify restart actually reset all game state.
+  useEffect(() => { if (phase === "choose" && !skillId) setLog((l) => ({ ...l, skillGateSeen: true })); }, [phase, skillId]);
+  useEffect(() => { if (result) setLog((l) => ({ ...l, feedbackShown: true })); }, [result]);
   useEffect(() => {
     if (!restartCheck) return;
-    const ok = phase === "start" && selected === null && trainAnswer === null && !skillEarned && ch.node === "n1" && ch.mistakes === 0 && ch.correct === 0 && ch.outcome === null && fb === null && !hintAvail;
+    const ok = phase === "start" && skillId === null && g.q === 0 && g.correct === 0 && g.mistakes === 0 && g.bonusLeft && !g.done && result === null && picked === null;
     setLog((l) => ({ ...l, restartOk: ok })); setRestartCheck(false);
-  }, [restartCheck, phase, selected, trainAnswer, skillEarned, ch, fb, hintAvail]);
+  }, [restartCheck, phase, skillId, g, result, picked]);
 
-  function startGame() { setPhase("choose"); setLog((l) => ({ ...l, started: true })); }
-
-  function answerTraining(id: string) {
-    if (!skill || trainAnswer) return;
-    const opt = skill.options.find((o) => o.id === id)!;
-    setTrainAnswer(id); setSkillEarned(opt.correct);
-    setFb({ correct: opt.correct, text: opt.explain, note: opt.correct ? `Skill unlocked: ${skill.reward}` : "No bonus unlocked — you can still win the final challenge with careful play." });
+  function pick(id: string) {
+    if (!skill || result) return;
+    const r = answer(g, skill.id, id);
+    setG(r.state); setPicked(id); setResult(r.result); setHintOn(false);
   }
-
-  function beginChallenge() {
-    setCh(initChallenge(selected, skillEarned));
-    setHintAvail(skillEarned && selected === "tactical");
-    setFb(null); setPhase("challenge");
+  function cont() {
+    if (result === "retry") { setPicked(null); setResult(null); return; }
+    const n = next(g); setG(n); setPicked(null); setResult(null);
+    if (n.done) { setPhase("result"); setLog((l) => ({ ...l, ended: isWin(n) ? "win" : "loss" })); }
   }
-
-  function choose(id: string) {
-    if (fb) return;
-    const node = NODES[ch.node]!;
-    const opt = node.options.find((o) => o.id === id)!;
-    const { state, used } = applyChoice(ch, id);
-    let note: string | undefined;
-    if (used === "shield") note = node.endgame ? "🛡 Shield used: your blunder is taken back — choose again." : "🛡 Shield absorbed this mistake. No penalty.";
-    if (used === "retry") note = "♔ Extra Move used: you get a second attempt at this endgame.";
-    if (!opt.correct && !used && state.outcome !== "loss") note = `Mistake ${state.mistakes}/${MAX_MISTAKES}.`;
-    setFb({ correct: opt.correct, text: opt.explain, note });
-    setPendingNext(state);
-  }
-
-  function continueChallenge() {
-    if (!pendingNext) return;
-    setCh(pendingNext); setFb(null); setHintShown(null); setPendingNext(null);
-    if (pendingNext.outcome) { setPhase("result"); setLog((l) => ({ ...l, ended: pendingNext.outcome })); }
-  }
-
   function restart() {
-    setPhase("start"); setSelected(null); setTrainAnswer(null); setSkillEarned(false);
-    setCh(initChallenge(null, false)); setFb(null); setPendingNext(null); setHintAvail(false); setHintShown(null); setShowTests(false);
-    setRestartCheck(true);
+    setPhase("start"); setSkillId(null); setG(initGame()); setPicked(null); setResult(null); setHintOn(false); setShowTests(false); setRestartCheck(true);
   }
-
-  const node = NODES[ch.node]!;
-  const final = score(skillEarned, ch);
+  const win = isWin(g);
+  const stepLabel = { start: "Step 1 of 4 · How to play", choose: "Step 2 of 4 · Pick a skill", bonus: "Step 3 of 4 · Your bonus", play: `Step 4 of 4 · Question ${g.q + 1} of 3`, result: "Finished · Your result" }[phase];
 
   return (
     <div className="min-h-screen bg-hero">
       <header className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 pt-6">
         <div className="flex items-center gap-3">
           <span className="text-4xl text-accent">♛</span>
-          <div>
-            <h1 className="font-display text-2xl font-bold leading-tight sm:text-3xl">Chess Strategist</h1>
-            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Skill Tree Challenge</p>
-          </div>
+          <div><h1 className="font-display text-2xl font-bold sm:text-3xl">Chess Strategist</h1>
+            <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Skill Tree Challenge</p></div>
         </div>
-        <nav className="flex gap-1 rounded-lg border border-border bg-card p-1 text-sm">
-          {([["game", "Game"], ["eval", "Evaluation"], ["evidence", "Assignment Evidence"]] as [Tab, string][]).map(([t, l]) => (
-            <button key={t} onClick={() => setTab(t)} className={`rounded-md px-3 py-1.5 transition-colors ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>{l}</button>
+        <nav className="flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 text-sm">
+          {([["game", "Play the Game"], ["eval", "Evaluation Checklist (0–5)"], ["evidence", "Assignment Evidence (Prompts)"]] as [Tab, string][]).map(([t, l]) => (
+            <button key={t} onClick={() => setTab(t)} className={`rounded-md px-3 py-1.5 ${tab === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>{l}</button>
           ))}
         </nav>
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-6">
         {tab === "game" && (
-          <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+          <div className="grid gap-6 lg:grid-cols-[1fr_260px]">
             <section className="space-y-4">
-              <Progress phase={phase} />
+              <p className="text-sm font-semibold uppercase tracking-widest text-primary">{stepLabel}</p>
 
               {phase === "start" && (
-                <div className={`${card} animate-rise`}>
-                  <h2 className="font-display text-3xl font-bold">Become a Chess Strategist</h2>
-                  <p className="mt-2 text-muted-foreground">Choose <strong className="text-foreground">exactly one</strong> of three chess skills to train. Pass its puzzle to unlock a bonus, then use it to win the final branching challenge. Takes about 3–5 minutes.</p>
-                  <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                    {SKILLS.map((s) => (
-                      <div key={s.id} className="rounded-lg border border-border bg-secondary p-3 text-sm">
-                        <div className="text-2xl text-accent">{s.icon}</div><p className="font-semibold">{s.name}</p>
-                      </div>
-                    ))}
+                <div className={`${card} animate-rise space-y-4`}>
+                  <h2 className="font-display text-3xl font-bold">How to play</h2>
+                  <ol className="space-y-2 text-base">
+                    <li><strong>1.</strong> Pick <strong>one</strong> chess skill. Each skill gives you one helpful bonus.</li>
+                    <li><strong>2.</strong> Read what your bonus does.</li>
+                    <li><strong>3.</strong> Answer <strong>3 simple chess questions</strong>, one at a time. Each shows a small board.</li>
+                    <li><strong>4.</strong> After each answer you see why it is right or wrong. Then press <strong>Continue</strong>.</li>
+                  </ol>
+                  <div className="rounded-lg border border-accent/50 bg-secondary p-4">
+                    <p className="font-display text-xl font-bold text-accent">What do I do?</p>
+                    <p className="mt-1">Just click the answer you think is best. <strong>You win if you make 1 mistake or fewer.</strong> That is the only rule. You play the white pieces (the light ones with outlines).</p>
                   </div>
-                  <button className={`${btnPrimary} mt-6`} onClick={startGame}>Start Game</button>
+                  <button className={btnPrimary} onClick={() => { setPhase("choose"); setLog((l) => ({ ...l, started: true })); }}>Start Game</button>
                 </div>
               )}
 
               {phase === "choose" && (
-                <div className={`${card} animate-rise`}>
-                  <h2 className="font-display text-2xl font-bold">Choose one skill to train</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">Each skill has a different reward and tradeoff. You must select one to continue.</p>
-                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <div className={`${card} animate-rise space-y-4`}>
+                  <h2 className="font-display text-2xl font-bold">Pick one skill</h2>
+                  <Guide>Choose one skill, then press “Next”.</Guide>
+                  <div className="grid gap-3 md:grid-cols-3">
                     {SKILLS.map((s) => (
-                      <button key={s.id} onClick={() => setSelected(s.id)} aria-pressed={selected === s.id}
-                        className={`rounded-xl border p-4 text-left transition-all hover:-translate-y-0.5 ${selected === s.id ? "border-primary bg-primary/10 shadow-glow" : "border-border bg-secondary"}`}>
+                      <button key={s.id} onClick={() => setSkillId(s.id)} aria-pressed={skillId === s.id}
+                        className={`rounded-xl border p-4 text-left transition-all ${skillId === s.id ? "border-primary bg-primary/10 shadow-glow" : "border-border bg-secondary hover:border-primary"}`}>
                         <div className="text-3xl text-accent">{s.icon}</div>
-                        <p className="mt-1 font-display text-xl font-bold">{s.name}</p>
-                        <p className="mt-2 text-xs text-primary">+ {s.reward}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">– {s.tradeoff}</p>
+                        <p className="font-display text-xl font-bold">{s.name}</p>
+                        <p className="mt-1 text-sm font-semibold text-primary">Bonus: {s.bonus}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{s.how}</p>
                       </button>
                     ))}
                   </div>
-                  <div className="mt-5 flex flex-wrap items-center gap-3">
-                    <button className={btnPrimary} disabled={!selected} onClick={() => { setPhase("train"); setFb(null); }}>Train this skill</button>
-                    {!selected && <span className="text-xs text-muted-foreground">Select a skill first.</span>}
-                  </div>
+                  <button className={btnPrimary} disabled={!skillId} onClick={() => setPhase("bonus")}>Next</button>
+                  {!skillId && <p className="text-xs text-muted-foreground">You must pick a skill first.</p>}
                 </div>
               )}
 
-              {phase === "train" && skill && (
-                <div className={`${card} animate-rise`}>
-                  <p className="text-xs uppercase tracking-widest text-primary">Training · {skill.name}</p>
-                  <h2 className="mt-1 font-display text-2xl font-bold">{skill.prompt}</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">White pieces are outlined. Highlighted squares mark the key area. One attempt only.</p>
-                  <div className="mt-4 grid items-start gap-5 md:grid-cols-2">
-                    <Board pieces={skill.pieces} highlight={skill.highlight} />
+              {phase === "bonus" && skill && (
+                <div className={`${card} animate-rise space-y-4 text-center`}>
+                  <div className="text-6xl text-accent">{skill.icon}</div>
+                  <h2 className="font-display text-3xl font-bold">Skill unlocked: {skill.name}</h2>
+                  <p className="text-xl font-semibold text-primary">Your bonus: {skill.bonus}</p>
+                  <p className="mx-auto max-w-md">{skill.how}</p>
+                  <p className="text-sm text-muted-foreground">Remember: win by making 1 mistake or fewer.</p>
+                  <button className={btnPrimary} onClick={() => setPhase("play")}>Start the 3 questions</button>
+                </div>
+              )}
+
+              {phase === "play" && skill && (
+                <div className={`${card} animate-rise space-y-4`} key={g.q}>
+                  <div className="flex items-center justify-between"><p className="font-semibold">Question {g.q + 1} of 3</p>
+                    <div className="flex gap-1">{QUESTIONS.map((_, i) => <span key={i} className={`h-2 w-8 rounded-full ${i <= g.q ? "bg-primary" : "bg-muted"}`} />)}</div></div>
+                  <h2 className="font-display text-2xl font-bold">{q.title}</h2>
+                  <p>{q.ask}</p>
+                  <p className="text-sm text-muted-foreground">ℹ️ {q.terms}</p>
+                  <div className="grid items-start gap-5 md:grid-cols-2">
+                    <Board pieces={q.pieces} highlight={q.highlight} />
                     <div className="space-y-2">
-                      {skill.options.map((o) => (
-                        <button key={o.id} disabled={!!trainAnswer} onClick={() => answerTraining(o.id)}
-                          className={`w-full rounded-lg border p-3 text-left text-sm transition-all ${trainAnswer === o.id ? (o.correct ? "border-primary bg-primary/15" : "border-destructive bg-destructive/15") : "border-border bg-secondary hover:border-primary"} disabled:cursor-default`}>
-                          {o.label}
+                      {!result && <Guide>Choose one answer.</Guide>}
+                      {q.options.map((o) => (
+                        <button key={o.id} disabled={!!result} onClick={() => pick(o.id)}
+                          className={`w-full rounded-lg border p-3 text-left text-sm transition-all disabled:cursor-default ${picked === o.id ? (o.correct ? "border-primary bg-primary/15" : "border-destructive bg-destructive/15") : hintOn && o.correct ? "border-accent shadow-glow" : "border-border bg-secondary hover:border-primary"}`}>
+                          {o.label}{hintOn && o.correct && !result && <span className="ml-2 text-xs text-accent">★ Hint</span>}
                         </button>
                       ))}
-                      {fb && <FeedbackBox f={fb} />}
-                      {trainAnswer && <button className={`${btnPrimary} mt-2 w-full`} onClick={beginChallenge}>Enter Final Challenge →</button>}
+                      {skill.id === "hint" && g.bonusLeft && !result && !hintOn && (
+                        <button className={`${btnGhost} w-full`} onClick={() => { setHintOn(true); setG({ ...g, bonusLeft: false }); }}>♘ Use my hint (1 left)</button>
+                      )}
                     </div>
                   </div>
-                </div>
-              )}
-
-              {phase === "challenge" && (
-                <div className={`${card} animate-rise`} key={node.id}>
-                  <p className="text-xs uppercase tracking-widest text-primary">Final Challenge · You play White</p>
-                  <h2 className="mt-1 font-display text-2xl font-bold">{node.title}</h2>
-                  <p className="mt-2 text-muted-foreground">{node.text}</p>
-                  <div className="mt-4 space-y-2">
-                    {node.options.map((o) => (
-                      <button key={o.id} disabled={!!fb} onClick={() => choose(o.id)}
-                        className={`w-full rounded-lg border p-3 text-left text-sm transition-all ${hintShown === o.id ? "border-accent shadow-glow" : "border-border"} bg-secondary hover:border-primary disabled:cursor-default disabled:opacity-70`}>
-                        {o.label}{hintShown === o.id && <span className="ml-2 text-xs text-accent">★ Hint</span>}
-                      </button>
-                    ))}
-                  </div>
-                  {hintAvail && !fb && (
-                    <button className={`${btnGhost} mt-3`} onClick={() => { setHintShown(node.options.find((o) => o.correct)!.id); setHintAvail(false); }}>♘ Use Bonus Hint (1 left)</button>
+                  {result && (
+                    <div role="status" className={`animate-rise rounded-lg border p-4 ${result === "correct" ? "border-primary bg-primary/10" : "border-destructive bg-destructive/10"}`}>
+                      <p className={`text-lg font-bold ${result === "correct" ? "text-primary" : "text-destructive"}`}>{result === "correct" ? "✓ Correct!" : "✗ Not quite."}</p>
+                      {result === "retry" ? <p className="mt-1 font-medium text-accent">♔ Retry used — try this question again.</p> : <p className="mt-1">{q.explain}</p>}
+                      {result === "shielded" && <p className="mt-2 font-medium text-accent">🛡 Your shield protected you: this does not count as a mistake.</p>}
+                      {result === "wrong" && <p className="mt-2 text-sm">Mistakes so far: {g.mistakes}</p>}
+                      <button className={`${btnPrimary} mt-4`} onClick={cont}>{result === "retry" ? "Try Again" : g.q === 2 ? "See My Result" : "Continue"}</button>
+                    </div>
                   )}
-                  {fb && <FeedbackBox f={fb} />}
-                  {fb && <button className={`${btnPrimary} mt-4`} onClick={continueChallenge}>{pendingNext?.outcome ? "See Result" : pendingNext?.node === ch.node ? "Try Again" : "Continue →"}</button>}
                 </div>
               )}
 
               {phase === "result" && (
-                <div className={`${card} animate-rise text-center`}>
-                  <div className="text-6xl">{ch.outcome === "win" ? "♔" : "♚"}</div>
-                  <h2 className={`mt-2 font-display text-4xl font-bold ${ch.outcome === "win" ? "text-primary" : "text-destructive"}`}>{ch.outcome === "win" ? "Victory!" : "Defeat"}</h2>
-                  <p className="mt-2 text-muted-foreground">{ch.outcome === "win" ? "You converted the endgame and promoted your pawn." : ch.lossReason}</p>
-                  <div className="mx-auto mt-5 grid max-w-md grid-cols-3 gap-3 text-sm">
-                    <Stat label="Score" value={`${final}/${MAX_SCORE}`} />
-                    <Stat label="Correct moves" value={`${ch.correct}/3`} />
-                    <Stat label="Mistakes" value={`${ch.mistakes}`} />
-                  </div>
-                  <p className="mt-3 text-xs text-muted-foreground">Skill: {skill?.name} — {skillEarned ? "bonus unlocked (+20)" : "bonus not unlocked"}</p>
-                  <div className="mt-5 flex flex-wrap justify-center gap-3">
-                    <button className={btnPrimary} onClick={restart}>Play Again</button>
-                    <button className={btnGhost} onClick={() => setShowTests((v) => !v)}>{showTests ? "Hide" : "Show"} Test Panel</button>
-                  </div>
+                <div className={`${card} animate-rise space-y-4 text-center`}>
+                  <div className="text-6xl">{win ? "🏆" : "♚"}</div>
+                  <h2 className={`font-display text-4xl font-bold ${win ? "text-primary" : "text-destructive"}`}>{win ? "You Win!" : "You Lost — try again!"}</h2>
+                  <p className="text-lg">You got <strong>{g.correct} of 3</strong> correct and made <strong>{g.mistakes}</strong> mistake{g.mistakes === 1 ? "" : "s"}.</p>
+                  <p className="text-sm text-muted-foreground">Skill used: {skill?.name} ({skill?.bonus}). You needed 1 mistake or fewer to win.</p>
+                  <button className={`${btnPrimary} px-10 text-lg`} onClick={restart}>Play Again</button>
+                  <div><button className="text-sm text-muted-foreground underline" onClick={() => setShowTests((v) => !v)}>{showTests ? "Hide" : "Show"} test checklist</button></div>
                   {showTests && <TestPanel log={log} />}
                 </div>
               )}
@@ -264,28 +203,9 @@ function App() {
 
             <aside className="space-y-4">
               <div className={card}>
-                <h3 className="font-display text-xl font-bold">Rules</h3>
-                <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-                  <li>• Pick exactly one skill and solve its puzzle (one try).</li>
-                  <li>• Correct = bonus unlocked (+20 pts).</li>
-                  <li>• Final challenge: 3 decisions, +25 each.</li>
-                  <li>• {MAX_MISTAKES} mistakes = defeat.</li>
-                  <li>• Misplaying the final endgame = draw = defeat.</li>
-                  <li>• Winning adds +25. Max {MAX_SCORE}.</li>
-                </ul>
-              </div>
-              <div className={card}>
-                <h3 className="font-display text-xl font-bold">Status</h3>
-                <dl className="mt-2 space-y-1 text-sm">
-                  <Row k="Skill" v={skill?.name ?? "—"} />
-                  <Row k="Unlocked" v={phase === "start" || phase === "choose" || !trainAnswer ? "—" : skillEarned ? "Yes" : "No"} />
-                  {phase === "challenge" && <>
-                    <Row k="Mistakes" v={`${ch.mistakes}/${MAX_MISTAKES}`} />
-                    <Row k="Shield" v={ch.shield ? "Ready 🛡" : "—"} />
-                    <Row k="Extra move" v={ch.retry ? "Ready ♔" : "—"} />
-                    <Row k="Hint" v={hintAvail ? "Ready ♘" : "—"} />
-                  </>}
-                </dl>
+                <h3 className="font-display text-xl font-bold">The only rule</h3>
+                <p className="mt-2 text-sm">Answer 3 questions. Make <strong>1 mistake or fewer</strong> to win.</p>
+                {skill && phase !== "start" && <p className="mt-3 text-sm text-primary">Your bonus: {skill.bonus} {phase === "play" ? (g.bonusLeft ? "(ready)" : "(used)") : ""}</p>}
               </div>
               <div className={card}>
                 <h3 className="font-display text-xl font-bold">Assignment Info</h3>
@@ -304,17 +224,14 @@ function App() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-lg border border-border bg-secondary p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="font-display text-2xl font-bold">{value}</p></div>;
-}
 function Row({ k, v }: { k: string; v: string }) {
   return <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{k}</dt><dd className="text-right font-medium">{v}</dd></div>;
 }
 
 function TestPanel({ log }: { log: TestLog }) {
   const rows: [string, boolean | null, string][] = [
-    ["Game starts", log.started, "Start Game moved the game to skill selection."],
-    ["Skill choice is required", log.skillGateSeen, "Training button was shown disabled while no skill was selected."],
+    ["Game starts", log.started, "Start Game moved you to skill selection."],
+    ["Skill choice is required", log.skillGateSeen, "The Next button was shown disabled while no skill was picked."],
     ["Feedback appears", log.feedbackShown, "A correct/incorrect explanation was displayed after a choice."],
     ["Final challenge ends in win or loss", log.ended !== null, log.ended ? `Ended with: ${log.ended}.` : "Not yet ended."],
     ["Restart resets progress", log.restartOk, log.restartOk === null ? "Pending — click Play Again, finish another game, then reopen this panel." : "All game state checked after Play Again."],

@@ -1,160 +1,100 @@
-export type SkillId = "tactical" | "defensive" | "endgame";
+export type SkillId = "hint" | "shield" | "retry";
 export type Piece = { sq: string; p: string; white: boolean };
-
-export interface Option { id: string; label: string; correct: boolean; explain: string }
-
-export interface SkillDef {
-  id: SkillId;
-  name: string;
-  icon: string;
-  reward: string;
-  tradeoff: string;
-  prompt: string;
+export interface Option { id: string; label: string; correct: boolean }
+export interface Question {
+  title: string;
+  ask: string;
+  terms: string;
   pieces: Piece[];
   highlight: string[];
   options: Option[];
+  explain: string;
 }
+
+export interface SkillDef { id: SkillId; name: string; icon: string; bonus: string; how: string }
+
+export const SKILLS: SkillDef[] = [
+  { id: "hint", name: "Tactical Vision", icon: "♘", bonus: "1 Hint",
+    how: "On any one question, press “Use my hint” and the correct answer will glow." },
+  { id: "shield", name: "Defensive Thinking", icon: "♖", bonus: "1 Mistake Shield",
+    how: "Your first wrong answer will not count as a mistake. It is used automatically." },
+  { id: "retry", name: "Endgame Mastery", icon: "♔", bonus: "1 Retry",
+    how: "The first time you answer wrong, you can try that same question again." },
+];
 
 const P = (sq: string, p: string, white: boolean): Piece => ({ sq, p, white });
 
-export const SKILLS: SkillDef[] = [
+export const QUESTIONS: Question[] = [
   {
-    id: "tactical",
-    name: "Tactical Vision",
-    icon: "♘",
-    reward: "Bonus Hint: reveal the best move once in the final challenge.",
-    tradeoff: "No safety net — a hint only helps if you use it at the right moment.",
-    prompt: "White to move. Find the mate in one.",
+    title: "Find the winning move",
+    ask: "You are White. Which move checkmates the black king right now?",
+    terms: "Checkmate = the king is attacked and has no safe square to move to. That wins the game.",
     pieces: [P("g1", "♚", true), P("e1", "♜", true), P("f2", "♟", true), P("g2", "♟", true), P("h2", "♟", true),
       P("g8", "♚", false), P("f7", "♟", false), P("g7", "♟", false), P("h7", "♟", false)],
-    highlight: ["e1", "e8"],
+    highlight: ["e1"],
     options: [
-      { id: "re8", label: "Re8#", correct: true, explain: "Correct! Black's own pawns trap the king on the back rank — Re8 is checkmate." },
-      { id: "re7", label: "Re7", correct: false, explain: "Re7 is not check. Black is fine. The back rank (e8) was the target: Re8#." },
-      { id: "h3", label: "h3", correct: false, explain: "h3 is a quiet safety move, not mate. Re8# wins immediately because Black has no escape squares." },
+      { id: "a", label: "Move the rook all the way to the top row", correct: true },
+      { id: "b", label: "Move the rook up just one square", correct: false },
+      { id: "c", label: "Move a pawn forward one square", correct: false },
     ],
+    explain: "Moving the rook to the top row attacks the black king. The king's own pawns block every escape square, so it is checkmate.",
   },
   {
-    id: "defensive",
-    name: "Defensive Thinking",
-    icon: "♖",
-    reward: "Shield: one mistake in the final challenge is forgiven.",
-    tradeoff: "No hints — you must find every good move yourself.",
-    prompt: "White to move. Black threatens Re1# on your back rank. Choose the safest move.",
+    title: "Choose the safest move",
+    ask: "You are White. The black rook wants to jump to your bottom row and checkmate your king. Which move keeps your king safe?",
+    terms: "Your king is stuck behind its own three pawns, so it has nowhere to run if attacked from the side.",
     pieces: [P("g1", "♚", true), P("d4", "♞", true), P("a2", "♟", true), P("f2", "♟", true), P("g2", "♟", true), P("h2", "♟", true),
       P("g8", "♚", false), P("e8", "♜", false), P("c6", "♟", false), P("f7", "♟", false), P("g7", "♟", false), P("h7", "♟", false)],
-    highlight: ["e8", "e1"],
+    highlight: ["e8", "g1"],
     options: [
-      { id: "h3", label: "h3", correct: true, explain: "Correct! h3 gives your king an escape square (h2), so Re1+ is no longer mate." },
-      { id: "nxc6", label: "Nxc6", correct: false, explain: "Greedy! After Nxc6, Black plays Re1# — the knight cannot cover e1. h3 (luft) was safest." },
-      { id: "a3", label: "a3", correct: false, explain: "a3 ignores the threat: Re1 is checkmate. Making luft with h3 was the safe choice." },
+      { id: "a", label: "Move the pawn in front of the king's right side (h-pawn) forward one square", correct: true },
+      { id: "b", label: "Use your knight to capture a black pawn", correct: false },
+      { id: "c", label: "Move the far-left pawn forward one square", correct: false },
     ],
+    explain: "Moving the h-pawn opens a little escape square for your king. Now the rook attack is not checkmate. The other moves ignore the danger.",
   },
   {
-    id: "endgame",
-    name: "Endgame Mastery",
-    icon: "♔",
-    reward: "Extra Move: a second attempt on the final endgame decision.",
-    tradeoff: "Only helps in the endgame — middlegame mistakes still count fully.",
-    prompt: "King + pawn vs king. Which principle wins for White?",
+    title: "Help your pawn become a queen",
+    ask: "You are White with a king and one pawn. How do you help the pawn reach the top row?",
+    terms: "A pawn that reaches the last row turns into a queen (this is called promotion).",
     pieces: [P("e4", "♚", true), P("e3", "♟", true), P("e6", "♚", false)],
-    highlight: ["e4", "e6"],
+    highlight: ["e4", "e3"],
     options: [
-      { id: "front", label: "Lead with the king in front of the pawn and fight for the opposition", correct: true, explain: "Correct! The king escorts the pawn; gaining the opposition forces the defending king aside." },
-      { id: "rush", label: "Push the pawn as fast as possible", correct: false, explain: "A pawn running alone gets blocked by the enemy king — often a draw. The king must lead." },
-      { id: "behind", label: "Keep the king behind the pawn for protection", correct: false, explain: "From behind, the king can't control the queening squares. Put it in front and take the opposition." },
+      { id: "a", label: "Walk your king ahead of the pawn to push the enemy king away", correct: true },
+      { id: "b", label: "Push the pawn forward alone as fast as possible", correct: false },
+      { id: "c", label: "Keep your king behind the pawn", correct: false },
     ],
+    explain: "Your king must lead the way. A pawn on its own gets blocked or captured by the enemy king.",
   },
 ];
 
-export interface Node {
-  id: string;
-  title: string;
-  text: string;
-  endgame?: boolean;
-  options: (Option & { next: string })[];
-}
+export const MAX_MISTAKES_TO_WIN = 1;
 
-/** Final challenge graph. "END" means the scenario is complete. */
-export const NODES: Record<string, Node> = {
-  n1: {
-    id: "n1", title: "1 · The f2 Pressure",
-    text: "Black's bishop on c5 and queen on h4 both aim at your f2 pawn. Your move.",
-    options: [
-      { id: "d4", label: "d4 — block the bishop's diagonal with tempo", correct: true, next: "n2a", explain: "Strong! d4 cuts the c5–f2 diagonal and attacks the bishop. f2 is safe." },
-      { id: "h3", label: "h3 — stop a future ...Ng4", correct: false, next: "n2b", explain: "Too slow. Black plays ...Qxf2+ and wins a pawn with attack. d4 was needed." },
-      { id: "nxe5", label: "Nxe5 — grab the central pawn", correct: false, next: "n2b", explain: "Greedy. ...Bxf2+ rips open your king. Defend first: d4." },
-    ],
-  },
-  n2a: {
-    id: "n2a", title: "2 · The Open e-File",
-    text: "The bishop retreats. Black's king is still uncastled on e8 and the e-file is opening.",
-    options: [
-      { id: "castle", label: "Castle and bring a rook to e1", correct: true, next: "n3", explain: "Excellent! King safe, rook on the open file — you win material on e-file pins and trade into a won endgame." },
-      { id: "storm", label: "Launch g4–g5 with your king still in the centre", correct: false, next: "n3", explain: "Risky — your own king gets exposed and Black equalises. Castling first was correct." },
-    ],
-  },
-  n2b: {
-    id: "n2b", title: "2 · Under Fire",
-    text: "You are a pawn down and Black's queen is swarming your king.",
-    options: [
-      { id: "trade", label: "Offer a queen trade to kill the attack", correct: true, next: "n3", explain: "Smart defence! Without queens the attack fizzles. Activity lets you win the pawn back into an endgame." },
-      { id: "qh5", label: "Counterattack alone with Qh5", correct: false, next: "n3", explain: "A lone queen can't attack. Black's pieces keep hitting your king. Trading queens was safer." },
-    ],
-  },
-  n3: {
-    id: "n3", title: "3 · The Deciding Endgame", endgame: true,
-    text: "Everything is traded: your king and an extra e-pawn vs the lone black king. Convert it.",
-    options: [
-      { id: "king", label: "Advance the king ahead of the pawn and take the opposition", correct: true, next: "END", explain: "Textbook! Your king clears the path and the pawn promotes. Victory!" },
-      { id: "push", label: "Push the pawn immediately", correct: false, next: "END", explain: "The black king blocks the pawn — it's a draw, not a win. The king had to lead." },
-    ],
-  },
-};
-
-export const MAX_MISTAKES = 2;
-
-export interface ChallengeState {
-  node: string;
-  mistakes: number;
-  shield: boolean; // available
-  retry: boolean; // available (endgame extra move)
+export interface GameState {
+  q: number; // current question index
   correct: number;
-  outcome: null | "win" | "loss";
-  lossReason?: string;
+  mistakes: number;
+  bonusLeft: boolean;
+  done: boolean;
 }
 
-export function initChallenge(skill: SkillId | null, skillEarned: boolean): ChallengeState {
-  return {
-    node: "n1", mistakes: 0, correct: 0, outcome: null,
-    shield: skillEarned && skill === "defensive",
-    retry: skillEarned && skill === "endgame",
-  };
+export function initGame(): GameState {
+  return { q: 0, correct: 0, mistakes: 0, bonusLeft: true, done: false };
 }
 
-/** Apply a choice. Returns new state plus a note about which bonus (if any) was consumed. */
-export function applyChoice(s: ChallengeState, optId: string): { state: ChallengeState; used?: "shield" | "retry" } {
-  const node = NODES[s.node]!;
-  const opt = node!.options.find((o) => o.id === optId)!;
-  if (opt.correct) {
-    const correct = s.correct + 1;
-    if (opt.next === "END") return { state: { ...s, correct, outcome: "win" } };
-    return { state: { ...s, correct, node: opt.next } };
-  }
-  // Mistake. Endgame retry stays on the same node.
-  if (node.endgame && s.retry) return { state: { ...s, retry: false }, used: "retry" };
-  if (s.shield) {
-    // Shield forgives the mistake: no count, and an endgame blunder is taken back.
-    if (node.endgame) return { state: { ...s, shield: false }, used: "shield" };
-    return { state: { ...s, shield: false, node: opt.next }, used: "shield" };
-  }
-  const mistakes = s.mistakes + 1;
-  if (mistakes >= MAX_MISTAKES) return { state: { ...s, mistakes, outcome: "loss", lossReason: "Two mistakes — your position collapsed." } };
-  if (node.endgame) return { state: { ...s, mistakes, outcome: "loss", lossReason: "The endgame was misplayed and ended in a draw." } };
-  return { state: { ...s, mistakes, node: opt.next } };
+export type AnswerResult = "correct" | "wrong" | "shielded" | "retry";
+
+/** Grade an answer. Does not advance; call next() after showing the explanation (unless "retry"). */
+export function answer(s: GameState, skill: SkillId, optId: string): { state: GameState; result: AnswerResult } {
+  const ok = QUESTIONS[s.q]!.options.find((o) => o.id === optId)!.correct;
+  if (ok) return { state: { ...s, correct: s.correct + 1 }, result: "correct" };
+  if (s.bonusLeft && skill === "shield") return { state: { ...s, bonusLeft: false }, result: "shielded" };
+  if (s.bonusLeft && skill === "retry") return { state: { ...s, bonusLeft: false }, result: "retry" };
+  return { state: { ...s, mistakes: s.mistakes + 1 }, result: "wrong" };
 }
 
-export function score(skillEarned: boolean, c: ChallengeState) {
-  return (skillEarned ? 20 : 0) + c.correct * 25 + (c.outcome === "win" ? 25 : 0);
+export function next(s: GameState): GameState {
+  return s.q + 1 >= QUESTIONS.length ? { ...s, done: true } : { ...s, q: s.q + 1 };
 }
-export const MAX_SCORE = 20 + 3 * 25 + 25;
+
+export const isWin = (s: GameState) => s.mistakes <= MAX_MISTAKES_TO_WIN;
