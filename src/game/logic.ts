@@ -134,8 +134,8 @@ export function initChallenge(skill: SkillId | null, skillEarned: boolean): Chal
 
 /** Apply a choice. Returns new state plus a note about which bonus (if any) was consumed. */
 export function applyChoice(s: ChallengeState, optId: string): { state: ChallengeState; used?: "shield" | "retry" } {
-  const node = NODES[s.node];
-  const opt = node.options.find((o) => o.id === optId)!;
+  const node = NODES[s.node]!;
+  const opt = node!.options.find((o) => o.id === optId)!;
   if (opt.correct) {
     const correct = s.correct + 1;
     if (opt.next === "END") return { state: { ...s, correct, outcome: "win" } };

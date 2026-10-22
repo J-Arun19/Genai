@@ -114,7 +114,7 @@ function App() {
 
   function choose(id: string) {
     if (fb) return;
-    const node = NODES[ch.node];
+    const node = NODES[ch.node]!;
     const opt = node.options.find((o) => o.id === id)!;
     const { state, used } = applyChoice(ch, id);
     let note: string | undefined;
@@ -137,7 +137,7 @@ function App() {
     setRestartCheck(true);
   }
 
-  const node = NODES[ch.node];
+  const node = NODES[ch.node]!;
   const final = score(skillEarned, ch);
 
   return (
