@@ -1,35 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { applyChoice, initChallenge, score, MAX_SCORE } from "./logic";
+import { answer, initGame, isWin, next, QUESTIONS } from "./logic";
 
-describe("final challenge rules", () => {
-  it("perfect play wins", () => {
-    let s = initChallenge(null, false);
-    for (const id of ["d4", "castle", "king"]) s = applyChoice(s, id).state;
-    expect(s.outcome).toBe("win");
-    expect(score(true, s)).toBe(MAX_SCORE);
+const right = (i: number) => QUESTIONS[i]!.options.find((o) => o.correct)!.id;
+const wrong = (i: number) => QUESTIONS[i]!.options.find((o) => !o.correct)!.id;
+
+describe("game rules", () => {
+  it("each question has exactly one correct answer", () => {
+    for (const q of QUESTIONS) expect(q.options.filter((o) => o.correct)).toHaveLength(1);
   });
-  it("two mistakes lose", () => {
-    let s = initChallenge(null, false);
-    s = applyChoice(s, "h3").state;
-    s = applyChoice(s, "qh5").state;
-    expect(s.outcome).toBe("loss");
+  it("one mistake still wins, two mistakes lose", () => {
+    let s = initGame();
+    s = next(answer(s, "hint", wrong(0)).state);
+    s = next(answer(s, "hint", right(1)).state);
+    s = next(answer(s, "hint", right(2)).state);
+    expect(s.done).toBe(true); expect(isWin(s)).toBe(true);
+    let t = initGame();
+    t = next(answer(t, "hint", wrong(0)).state);
+    t = next(answer(t, "hint", wrong(1)).state);
+    expect(isWin(t)).toBe(false);
   });
-  it("shield forgives one mistake", () => {
-    let s = initChallenge("defensive", true);
-    s = applyChoice(s, "h3").state;
-    s = applyChoice(s, "qh5").state;
-    expect(s.mistakes).toBe(1);
-    expect(s.outcome).toBeNull();
+  it("shield forgives only the first wrong answer", () => {
+    let s = initGame();
+    const a = answer(s, "shield", wrong(0)); expect(a.result).toBe("shielded");
+    s = next(a.state);
+    const b = answer(s, "shield", wrong(1)); expect(b.result).toBe("wrong");
+    expect(b.state.mistakes).toBe(1);
   });
-  it("endgame extra move gives a retry", () => {
-    let s = { ...initChallenge("endgame", true), node: "n3" };
-    s = applyChoice(s, "push").state;
-    expect(s.outcome).toBeNull();
-    s = applyChoice(s, "king").state;
-    expect(s.outcome).toBe("win");
-  });
-  it("endgame blunder without bonus is a loss", () => {
-    const s = applyChoice({ ...initChallenge(null, false), node: "n3" }, "push").state;
-    expect(s.outcome).toBe("loss");
+  it("retry allows one second attempt without a mistake", () => {
+    const a = answer(initGame(), "retry", wrong(0));
+    expect(a.result).toBe("retry"); expect(a.state.mistakes).toBe(0); expect(a.state.q).toBe(0);
+    expect(answer(a.state, "retry", wrong(0)).result).toBe("wrong");
   });
 });
