@@ -21,7 +21,7 @@ export const Route = createFileRoute("/")({
 
 type Phase = "start" | "choose" | "train" | "challenge" | "result";
 type Tab = "game" | "eval" | "evidence";
-interface Feedback { correct: boolean; text: string; note?: string }
+interface Feedback { correct: boolean; text: string; note?: string | undefined }
 interface TestLog { started: boolean; skillGateSeen: boolean; feedbackShown: boolean; ended: null | "win" | "loss"; restartOk: null | boolean }
 
 const card = "rounded-xl border border-border bg-card p-5 shadow-elegant sm:p-6";
