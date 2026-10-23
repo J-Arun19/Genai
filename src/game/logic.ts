@@ -1,7 +1,7 @@
 export type SkillId = "tactics" | "defense" | "opening";
 export type Kind = "K" | "Q" | "R" | "B" | "N" | "P";
 export type Piece = { sq: string; k: Kind; white: boolean };
-export interface Move { from: string; to: string; extra?: { from: string; to: string } }
+export interface Move { from: string; to: string; extra?: { from: string; to: string } | undefined }
 export interface Option { id: string; label: string; correct: boolean; move: Move; feedback: string }
 export interface Question { title: string; ask: string; board: string; pieces: Piece[]; options: Option[] }
 export interface SkillDef { id: SkillId; name: string; piece: Kind; tagline: string }

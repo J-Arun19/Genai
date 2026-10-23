@@ -74,7 +74,7 @@ function MovingPiece({ p, glow }: { p: Piece; glow: boolean }) {
 export interface BoardProps {
   pieces: (Piece & { id: number })[];
   from?: string[];
-  targets?: { sq: string; label: string; state?: "right" | "wrong" | "dim" }[];
+  targets?: { sq: string; label: string; state?: "right" | "wrong" | "dim" | undefined }[];
   burst?: string | null;
   onPickTarget?: (label: string) => void;
 }
