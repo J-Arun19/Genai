@@ -1,34 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { answer, initGame, isWin, next, QUESTIONS } from "./logic";
+import { answer, initGame, isWin, next, QUESTIONS, SKILLS } from "./logic";
 
-const right = (i: number) => QUESTIONS[i]!.options.find((o) => o.correct)!.id;
-const wrong = (i: number) => QUESTIONS[i]!.options.find((o) => !o.correct)!.id;
+const play = (skill: "tactics" | "defense" | "opening", oks: boolean[]) => {
+  let s = initGame();
+  oks.forEach((ok, i) => {
+    const id = QUESTIONS[skill][i]!.options.find((o) => o.correct === ok)!.id;
+    s = next(answer(s, skill, id).state);
+  });
+  return s;
+};
 
 describe("game rules", () => {
-  it("each question has exactly one correct answer", () => {
-    for (const q of QUESTIONS) expect(q.options.filter((o) => o.correct)).toHaveLength(1);
+  it("3 skills, 3 questions each, 3 options with exactly one correct", () => {
+    expect(SKILLS.map((s) => s.name)).toEqual(["Tactics", "Defense", "Opening"]);
+    for (const s of SKILLS) {
+      expect(QUESTIONS[s.id]).toHaveLength(3);
+      for (const q of QUESTIONS[s.id]) {
+        expect(q.options).toHaveLength(3);
+        expect(q.options.filter((o) => o.correct)).toHaveLength(1);
+        for (const o of q.options) expect(q.pieces.some((p) => p.sq === o.move.from && p.white)).toBe(true);
+      }
+    }
   });
-  it("one mistake still wins, two mistakes lose", () => {
-    let s = initGame();
-    s = next(answer(s, "hint", wrong(0)).state);
-    s = next(answer(s, "hint", right(1)).state);
-    s = next(answer(s, "hint", right(2)).state);
+  it("2 of 3 correct wins", () => {
+    const s = play("tactics", [true, false, true]);
     expect(s.done).toBe(true); expect(isWin(s)).toBe(true);
-    let t = initGame();
-    t = next(answer(t, "hint", wrong(0)).state);
-    t = next(answer(t, "hint", wrong(1)).state);
-    expect(isWin(t)).toBe(false);
   });
-  it("shield forgives only the first wrong answer", () => {
-    let s = initGame();
-    const a = answer(s, "shield", wrong(0)); expect(a.result).toBe("shielded");
-    s = next(a.state);
-    const b = answer(s, "shield", wrong(1)); expect(b.result).toBe("wrong");
-    expect(b.state.mistakes).toBe(1);
-  });
-  it("retry allows one second attempt without a mistake", () => {
-    const a = answer(initGame(), "retry", wrong(0));
-    expect(a.result).toBe("retry"); expect(a.state.mistakes).toBe(0); expect(a.state.q).toBe(0);
-    expect(answer(a.state, "retry", wrong(0)).result).toBe("wrong");
+  it("1 of 3 correct does not win", () => {
+    const s = play("defense", [false, true, false]);
+    expect(s.done).toBe(true); expect(isWin(s)).toBe(false); expect(s.mistakes).toBe(2);
   });
 });
