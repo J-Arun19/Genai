@@ -73,7 +73,7 @@ function MovingPiece({ p, glow }: { p: Piece; glow: boolean }) {
 
 export interface BoardProps {
   pieces: (Piece & { id: number })[];
-  from?: string;
+  from?: string[];
   targets?: { sq: string; label: string; state?: "right" | "wrong" | "dim" }[];
   burst?: string | null;
   onPickTarget?: (label: string) => void;
@@ -100,7 +100,7 @@ function Board({ pieces, from, targets = [], burst, onPickTarget }: BoardProps) 
       <mesh position={[0, -0.005, 0]}><boxGeometry args={[8.3, 0.02, 8.3]} /><meshStandardMaterial color={GOLD} metalness={0.6} roughness={0.3} /></mesh>
       {squares.map(({ sq, dark }) => {
         const [x, z] = sqPos(sq);
-        const isFrom = sq === from;
+        const isFrom = !!from?.includes(sq);
         return (
           <mesh key={sq} position={[x, 0.01, z]} rotation-x={-Math.PI / 2} receiveShadow>
             <planeGeometry args={[1, 1]} />
